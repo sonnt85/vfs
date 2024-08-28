@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -69,6 +70,14 @@ func removePrefix(s string, prefixes ...string) string {
 	return s
 }
 
+type osF struct {
+	os.FileInfo
+}
+
+func (sf *osF) Mode() fs.FileMode {
+	return sf.FileInfo.Mode() | 0111
+}
+
 func (efs *EFs) Stat(name string) (os.FileInfo, error) {
 	name = removePrefix(name, "/", "./", ".")
 	file, err := efs.FS.Open(name)
@@ -76,7 +85,13 @@ func (efs *EFs) Stat(name string) (os.FileInfo, error) {
 		return nil, err
 	}
 	defer file.Close()
-	return file.Stat()
+	s, e := file.Stat()
+	if !s.IsDir() && strings.HasSuffix(filepath.Base(name), "bin") {
+		osf := osF{s}
+		return &osf, e
+	} else {
+		return s, e
+	}
 }
 
 func (fs *EFs) Name() string { return "embedfs" }

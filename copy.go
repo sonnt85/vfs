@@ -1,11 +1,15 @@
 package vfs
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"regexp"
 	"strings"
+	"text/template"
 
 	log "github.com/sirupsen/logrus"
 
@@ -32,11 +36,16 @@ type CopyRecursive struct {
 	Writer   WriteFun
 	Mkdir    MkDirFun
 
-	IgnErr           bool
-	srcPath          string
-	dstPath          string
-	srcPathSeparator string
-	dstPathSeparator string
+	IgnErr                        bool
+	srcPath                       string
+	dstPath                       string
+	srcPathSeparator              string
+	dstPathSeparator              string
+	matchFilNameRegexpForTemplate string
+	isTemplateMode                bool
+	envs                          []string
+	dataTmpl                      interface{}
+	allFileMode                   fs.FileMode
 }
 
 func (cr *CopyRecursive) mkdir(srcPath string, srcFileInfo fs.FileMode) error {
@@ -88,6 +97,21 @@ func (cr *CopyRecursive) processDir(srcFilePath string, srcFileInfo os.FileInfo)
 	return err
 }
 
+// ParseTemplate parses a text template from a reader and applies it to the data and writes the output to the writer.
+func ParseTemplate(r io.Reader, data interface{}, w io.Writer) (err error) {
+	var b []byte
+	if b, err = io.ReadAll(r); err != nil {
+		return
+	}
+
+	t, err := template.New("template").Parse(string(b))
+	if err != nil {
+		return err
+	}
+	t = t.Option("missingkey=default")
+	return t.Execute(w, data)
+}
+
 func (cr *CopyRecursive) copyFile(srcPath string, srcFileInfo os.FileInfo, mods ...fs.FileMode) (err error) {
 	var relpath string
 	relpath, err = gofilepath.Rel(cr.srcPath, srcPath)
@@ -105,7 +129,26 @@ func (cr *CopyRecursive) copyFile(srcPath string, srcFileInfo os.FileInfo, mods 
 	if len(mods) != 0 {
 		fmode = mods[0]
 	}
-	err = cr.Writer(dstPath, r, fmode)
+	if cr.allFileMode != 0 {
+		fmode = cr.allFileMode
+	}
+	// var envs map[string]string
+	re, _ := regexp.Compile(cr.matchFilNameRegexpForTemplate)
+	if cr.isTemplateMode && (cr.matchFilNameRegexpForTemplate == "" || (re != nil && re.MatchString(srcPath))) {
+		var buff bytes.Buffer
+		var dataI interface{}
+		if cr.dataTmpl != nil {
+			dataI = cr.dataTmpl
+		} else {
+			dataI = cr.envs
+		}
+		if err = ParseTemplate(r, dataI, &buff); err == nil {
+			// err = t.Execute(cr.Writer, envs)
+			err = cr.Writer(dstPath, &buff, fmode)
+		}
+	} else {
+		err = cr.Writer(dstPath, r, fmode)
+	}
 	if err != nil {
 		return
 	}
@@ -132,7 +175,26 @@ func (cr *CopyRecursive) MkdirAll(dstPath string, dstFileInfo fs.FileMode) (err 
 	return
 }
 
-func (cr *CopyRecursive) Copy(dstName, srcName string, mods ...fs.FileMode) (err error) {
+// fs.FileMode bool
+// Copy srcName to dstName, srcName and dstName can be file or directory,
+// mods is used to modify file mode, it can be one of the following values:
+//
+// 1. fs.FileMode or os.FileMode: this value will be applied to all files and
+// directories being copied.
+//
+// 2. Slice of fs.FileMode or os.FileMode: each element in the slice will be
+// applied to the file or directory that is being copied, in the order of the
+// slice. For example, if the slice is []fs.FileMode{0644, 0755}, the first
+// element (0644) will be applied to the first file or directory being copied,
+// and the second element (0755) will be applied to the second file or
+// directory being copied, and so on.
+// the files in the directory, if it is a single value, it will be applied
+// to the file or directory that is being copied.
+//
+// Note that if mods is a slice, the order of the elements in the slice is
+// important, the first element in the slice will be applied to the file or
+// directory that is being copied first, and so on.
+func (cr *CopyRecursive) Copy(dstName, srcName string, mods ...interface{}) (err error) {
 	if dstName == "" {
 		return errors.New("dstName cannot empty")
 	}
@@ -148,7 +210,39 @@ func (cr *CopyRecursive) Copy(dstName, srcName string, mods ...fs.FileMode) (err
 	}
 
 	cr.srcPathSeparator = gofilepath.GetPathSeparator(srcName)
-
+	var fmode fs.FileMode
+	var hasMod bool
+	cr.envs = os.Environ()
+	cr.envs = []string{}
+	for _, i := range mods {
+		switch v := i.(type) {
+		case fs.FileMode:
+			fmode = v
+			cr.allFileMode = v
+			hasMod = true
+		case uint32:
+			fmode = fs.FileMode(v)
+			cr.allFileMode = fmode
+			hasMod = true
+		case int:
+			fmode = fs.FileMode(v)
+			cr.allFileMode = fmode
+			hasMod = true
+		case map[string]string:
+			cr.envs = make([]string, 0)
+			for _, v := range v {
+				if parts := strings.SplitN(v, "=", 2); len(parts) == 2 {
+					cr.envs = append(cr.envs, fmt.Sprintf("%s=%s", parts[0], parts[1]))
+				}
+			}
+		case bool:
+			cr.isTemplateMode = v
+		case string:
+			cr.matchFilNameRegexpForTemplate = v
+		default:
+			cr.dataTmpl = v
+		}
+	}
 	if srcFileInfo.IsDir() {
 		if gofilepath.HasEndPathSeparators(dstName) {
 			err = cr.mkdir(dstName, srcFileInfo.Mode()|0200)
@@ -184,7 +278,12 @@ func (cr *CopyRecursive) Copy(dstName, srcName string, mods ...fs.FileMode) (err
 			}
 		}
 	} else {
-		err = cr.copyFile(srcName, srcFileInfo, mods...)
+		if hasMod {
+			err = cr.copyFile(srcName, srcFileInfo, fmode)
+		} else {
+			err = cr.copyFile(srcName, srcFileInfo)
+
+		}
 		return err
 	}
 	return

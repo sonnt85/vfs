@@ -111,7 +111,14 @@ func (f *File) Seek(offset int64, whence int) (ret int64, err error) {
 }
 
 func (f *File) Stat() (fs.FileInfo, error) {
-	return f.f.Stat()
+	// return f.f.Stat()
+	s, e := f.f.Stat()
+	if !s.IsDir() {
+		osf := osF{s}
+		return &osf, e
+	} else {
+		return f.f.Stat()
+	}
 }
 
 // IsDir returns true if the file location represents a directory.

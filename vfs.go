@@ -1,15 +1,20 @@
 package vfs
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"os"
+
 	"embed"
 	"fmt"
 	"path/filepath"
 
-	"github.com/spf13/afero"
-	"github.com/spf13/afero/zipfs"
-
+	"github.com/sonnt85/gosutils/endec"
 	"github.com/sonnt85/vfs/sembed"
+
+	"github.com/spf13/afero"
+	"github.com/spf13/afero/tarfs"
+	"github.com/spf13/afero/zipfs"
 )
 
 // import
@@ -32,12 +37,15 @@ func NewEFs(efs *embed.FS, rootDir string, sub ...string) (*VFS, error) {
 	return NewVFS(ef, rootDir)
 }
 
-func NewVFSFromAFS(afs afero.Fs) *VFS {
-	return &VFS{
-		VFSS: &VFSS{
-			afs,
-		},
+func NewVFSFromAFS(afs afero.Fs, sub ...string) (vfs *VFS) {
+	if len(sub) != 0 {
+		afs = afero.NewBasePathFs(afs, sub[0])
 	}
+	vfs = new(VFS)
+	vfs.AferoWrap = new(AferoWrap)
+	vfs.AferoWrap.Afero = new(afero.Afero)
+	vfs.AferoWrap.Afero.Fs = afs
+	return
 }
 
 // base, layer are afero.Fs or *vfs.VFS
@@ -48,7 +56,7 @@ func NewOverlayFs(base, layer interface{}) *VFS {
 	case afero.Fs:
 		baseafs = v
 	case *VFS:
-		baseafs = v.VFI
+		baseafs = v.Afero.Fs
 	default:
 		return nil
 	}
@@ -57,7 +65,7 @@ func NewOverlayFs(base, layer interface{}) *VFS {
 	case afero.Fs:
 		layerafs = v
 	case *VFS:
-		layerafs = v.VFI
+		layerafs = v.Afero.Fs
 	default:
 		return nil
 	}
@@ -80,23 +88,71 @@ func NewOsFs(dir ...string) *VFS {
 }
 
 // r is  *zip.Reader) or stringpath to zipfile
-func NewZipFs(r interface{}) (vfs *VFS, err error) {
+func NewZipFs(r interface{}, password ...[]byte) (vfs *VFS, err error) {
 	var rd *zip.Reader
-	zippath := ""
 	switch v := r.(type) {
 	case *zip.Reader:
 		rd = v
 	case string:
 		var rdc *zip.ReadCloser
-		rdc, err = zip.OpenReader(zippath)
+
+		rdc, err = zip.OpenReader(v)
 		if err != nil {
 			return
 		}
-		var ok bool
-		if rd, ok = interface{}(rdc).(*zip.Reader); ok {
-			err = fmt.Errorf("r not implement *zip.Reader")
-			return
+		if len(password) != 0 {
+			rdc.RegisterDecompressor(endec.ZIPTYPEAES, endec.NewAesDecrypter(password[0], endec.AESZIPCHUNKSIZE))
 		}
+		// fmt.Println("zipdirroot ", rdc.File[0].Name)
+		// rd = &rdc.Reader
+		// if len(rdc.File) == 2 && rdc.File[0].Mode().IsDir() && !rdc.File[1].FileInfo().IsDir() {
+		// 	var tf fs.File
+		// 	if tf, err = rdc.Open(rdc.File[1].Name); err == nil {
+		// 		var trd *tar.Reader
+		// 		trd = tar.NewReader(tf)
+		// 		if _, err = trd.Next(); err == nil {
+		// 			// fmt.Println("zipdirroot ", rdc.File[0].Name)
+		// 			return NewVFSFromAFS(tarfs.New(trd)), nil
+		// 		}
+		// 	}
+		// 	tf.Close()
+		// }
+
+		// rdc.Open(rdc.File[1].Name)
+		// for _, v := range rdc.File {
+		// 	fmt.Println(v.Name)
+		// }
+		return NewVFSFromAFS(zipfs.New(&rdc.Reader), rdc.File[0].Name), nil
 	}
 	return NewVFSFromAFS(zipfs.New(rd)), nil
+}
+
+// r is  *tar.Reader) or stringpath to tarfile
+func NewTarFs(r interface{}, password ...[]byte) (vfs *VFS, err error) {
+	var rd *tar.Reader
+	switch v := r.(type) {
+	case *tar.Reader:
+		rd = v
+	case string:
+		var tf *os.File
+		tf, err = os.Open(v)
+		if err != nil {
+			return
+		}
+		rd = tar.NewReader(tf)
+		if _, err = rd.Next(); err != nil {
+			tf.Close()
+			return
+		}
+		// fmt.Println("zipdirroot ", rdc.File[0].Name)
+		return NewVFSFromAFS(tarfs.New(rd)), nil
+	}
+	return NewVFSFromAFS(tarfs.New(rd)), nil
+}
+
+func NewArchiveFs(r interface{}, password ...[]byte) (vfs *VFS, err error) {
+	if vfs, err = NewTarFs(r); err == nil {
+		return
+	}
+	return NewZipFs(r, password...)
 }
