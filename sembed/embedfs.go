@@ -27,6 +27,7 @@ func (efs *EFs) MkdirAll(path string, perm os.FileMode) error { return syscall.E
 
 func (efs *EFs) Open(name string) (fi afero.File, e error) {
 	// name = removePrefix(name, "/", "./", ".")
+	name = filepath.ToSlash(name)
 	var ffs fs.File
 	// var fstat fs.FileInfo
 	ffs, e = efs.FS.Open(name)
@@ -80,6 +81,7 @@ func (sf *osF) Mode() fs.FileMode {
 
 func (efs *EFs) Stat(name string) (os.FileInfo, error) {
 	name = removePrefix(name, "/", "./", ".")
+	name = filepath.ToSlash(name)
 	file, err := efs.FS.Open(name)
 	if err != nil {
 		return nil, err
