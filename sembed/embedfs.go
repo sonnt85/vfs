@@ -34,7 +34,6 @@ func (efs *EFs) Open(name string) (fi afero.File, e error) {
 	if e != nil {
 		return
 	}
-	defer ffs.Close()
 	var file = NewFile(ffs)
 
 	// fstat, e = efs.Stat(name)
