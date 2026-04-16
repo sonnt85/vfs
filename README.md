@@ -1,5 +1,7 @@
 # vfs
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/sonnt85/vfs.svg)](https://pkg.go.dev/github.com/sonnt85/vfs)
+
 Virtual filesystem library for Go — unified API over OS files, embedded FS, zip/tar archives, and overlay filesystems, with HTTP serving, file search, template rendering, and sync.
 
 ## Installation
@@ -61,6 +63,14 @@ vfs.Sync("/dst/dir", "/src/dir")
 
 ## API
 
+### Types
+
+- `type VFS struct` — main virtual filesystem type (embeds `*AferoWrap`)
+- `type AferoWrap struct` — wraps `*afero.Afero` and implements `http.FileSystem`
+- `type File struct` — virtual file (wraps `afero.File`) with `Readdir` and `Stat`
+- `type FileInfo interface` — shared interface for `os.FileInfo` and `fs.DirEntry` (`Name()`, `IsDir()`)
+- `type WalkDirFunc` — alias for `fs.WalkDirFunc`
+
 ### Constructors
 - `NewOsFs(dir ...string) *VFS` — OS filesystem, optionally rooted at dir
 - `NewEmbedHttpSystemFS(efs *embed.FS, rootDir string, sub ...string) (*VFS, error)` — from embedded FS
@@ -74,18 +84,23 @@ vfs.Sync("/dst/dir", "/src/dir")
 
 ### File Operations (VFS methods)
 - `Create(name string) (*File, error)` — create new file
-- `CreateFile/OpenRDONLY/OpenFileV(name, ...)` — open variants
+- `CreateFile(name string) (*File, error)` — create file (alias)
+- `OpenRDONLY(name string) (*File, error)` — open for reading only
+- `OpenFileV(name string, flag int, perm os.FileMode) (*File, error)` — open with flags
 - `ReadFile(name string) ([]byte, error)` — read entire file
-- `ReadDir(name string) ([]fs.DirEntry, error)` — list directory
+- `ReadDir(name string) ([]fs.DirEntry, error)` — list directory as `DirEntry` slice
+- `ReadDirFileInfo(name string) ([]os.FileInfo, error)` — list directory as `os.FileInfo` slice
+- `GetFileInfoExe(path string) fs.FileInfo` — return `FileInfo` for an executable inside the VFS
 - `Stat(path string) (fs.FileInfo, error)` — file info
 - `Open(name string) (http.File, error)` — open as `http.File`
 
 ### Search
-- `FindFilesMatchRegexpPathFromRoot(root, pattern, maxdeep, matchfile, matchdir)` — regex on full path
-- `FindFilesMatchRegexpName(root, pattern, maxdeep, matchfile, matchdir)` — regex on filename only
-- `FindFilesMatchName(root, pattern, maxdeep, matchfile, matchdir)` — glob on filename
-- `FindAndReadFirstFileMatchRegexPathFromRoot(rootdir, regex, depth)` — read first match
-- `FindAndOpenFirstFileMatchRegexPathFromRoot(rootdir, regex, depth)` — open first match
+- `FindFilesMatchPathFromRoot(root, pattern string, maxdeep int, matchfile, matchdir bool, matchFunc func(pattern, relpath string) bool) []string` — generic file search with custom match function
+- `FindFilesMatchRegexpPathFromRoot(root, pattern string, maxdeep int, matchfile, matchdir bool) []string` — regex on full path
+- `FindFilesMatchRegexpName(root, pattern string, maxdeep int, matchfile, matchdir bool) []string` — regex on filename only
+- `FindFilesMatchName(root, pattern string, maxdeep int, matchfile, matchdir bool) []string` — glob on filename
+- `FindAndReadFirstFileMatchRegexPathFromRoot(rootdir, regex string, depth int) (path string, data []byte, err error)` — read first match
+- `FindAndOpenFirstFileMatchRegexPathFromRoot(rootdir, regex string, depth int) (path string, f fs.File, err error)` — open first match
 
 ### Execution
 - `Exec(rootdir, regexPath string, depth int, args ...)` — find and execute binary
