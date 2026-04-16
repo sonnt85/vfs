@@ -102,6 +102,10 @@ vfs.Sync("/dst/dir", "/src/dir")
 - `(*VFS).WalkDir(root string, fn WalkDirFunc) error` — walk with `fs.DirEntry`
 - `(*VFS).GetRealPathOsFs(path string) string` — resolve real OS path (for BasePathFs)
 
+## Author
+
+**sonnt85** — [thanhson.rf@gmail.com](mailto:thanhson.rf@gmail.com)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
