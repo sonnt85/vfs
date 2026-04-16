@@ -57,7 +57,6 @@ func (vfs *VFS) Exec(rootdir, regexPath string, depth2search int, args ...interf
 	var path string
 	var file fs.File //[]byte
 	if path, file, err = vfs.FindAndOpenFirstFileMatchRegexPathFromRoot(rootdir, regexPath, depth2search); err == nil {
-		defer file.Close()
 		osFilePath := ""
 		switch v := file.(type) {
 		case *os.File:
@@ -74,8 +73,10 @@ func (vfs *VFS) Exec(rootdir, regexPath string, depth2search int, args ...interf
 			// fmt.Printf("%#v", v)
 		}
 		if len(osFilePath) != 0 {
+			_ = file.Close()
 			return sexec.ExecCommand(osFilePath, args...)
 		} else {
+			defer file.Close()
 			return sexec.ExecBytes(file, path, args...)
 		}
 	}
@@ -86,7 +87,6 @@ func (vfs *VFS) Exec(rootdir, regexPath string, depth2search int, args ...interf
 func (vfs *VFS) ExecFile(rootdir, filePath string, args ...interface{}) (stdob, stdeb []byte, err error) {
 	var file fs.File //[]byte
 	if file, err = vfs.Open(filePath); err == nil {
-		defer file.Close()
 		osFilePath := ""
 		switch v := file.(type) {
 		case *os.File:
@@ -103,9 +103,15 @@ func (vfs *VFS) ExecFile(rootdir, filePath string, args ...interface{}) (stdob, 
 			// fmt.Printf("%#v", v)
 		}
 		if len(osFilePath) != 0 {
+			_ = file.Close()
 			return sexec.ExecCommand(osFilePath, args...)
 		} else {
-			return sexec.ExecBytes(file, "", args...)
+			defer file.Close()
+			execName := filepath.Base(filePath)
+			if execName == "" || execName == "." || execName == string(os.PathSeparator) {
+				execName = "exec.bin"
+			}
+			return sexec.ExecBytes(file, execName, args...)
 		}
 	}
 	return
