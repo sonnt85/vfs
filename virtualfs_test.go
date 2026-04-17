@@ -2,10 +2,7 @@ package vfs
 
 import (
 	"embed"
-	"fmt"
 	"testing"
-
-	// "github.com/sonnt85/gosutils/sembed"
 
 	"github.com/spf13/afero"
 )
@@ -14,12 +11,21 @@ import (
 var es embed.FS
 
 func TestVFS(t *testing.T) {
-	efs, _ := NewEFs(&es, "statictest")
-	// fmt.Printf(efs)
-	fmt.Println(efs.FindFilesMatchRegexpPathFromRoot("/", "file", 5, true, true))
-	f := afero.NewOsFs()
-	vf, _ := NewVFS(f, "/tmp")
-	fmt.Println(vf.FindFilesMatchRegexpPathFromRoot("/", "kkk", 10, true, false))
-	vf.Copy("/tmp/abcde", "tmpold/kkk", 0777)
-	fmt.Println(vf.ReadFile("/tmpold/kkk"))
+	efs, err := NewEFs(&es, "statictest")
+	if err != nil {
+		t.Fatalf("NewEFs: %v", err)
+	}
+	files := efs.FindFilesMatchRegexpPathFromRoot("/", "file", 5, true, true)
+	t.Logf("efs files: %v", files)
+
+	vf, err := NewVFS(afero.NewOsFs(), "/tmp")
+	if err != nil {
+		t.Fatalf("NewVFS: %v", err)
+	}
+	found := vf.FindFilesMatchRegexpPathFromRoot("/", "kkk", 10, true, false)
+	t.Logf("vf files: %v", found)
+
+	// Best-effort smoke calls; missing paths should not fail the test.
+	_ = vf.Copy("/tmp/abcde", "tmpold/kkk", 0777)
+	_, _ = vf.ReadFile("/tmpold/kkk")
 }
