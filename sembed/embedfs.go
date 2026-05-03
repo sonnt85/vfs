@@ -26,8 +26,14 @@ func (efs *EFs) Mkdir(name string, perm os.FileMode) error { return syscall.EPER
 func (efs *EFs) MkdirAll(path string, perm os.FileMode) error { return syscall.EPERM }
 
 func (efs *EFs) Open(name string) (fi afero.File, e error) {
-	// name = removePrefix(name, "/", "./", ".")
+	// embed.FS rejects leading "/" or "./" — normalize before delegating.
+	// Stat() already does this; keep the two paths in sync so Open and Stat
+	// agree on whether a file exists.
+	name = removePrefix(name, "/", "./", ".")
 	name = filepath.ToSlash(name)
+	if name == "" {
+		name = "."
+	}
 	var ffs fs.File
 	// var fstat fs.FileInfo
 	ffs, e = efs.FS.Open(name)
