@@ -22,7 +22,12 @@ func NewEmbedHttpSystemFS(efs *embed.FS, rootDir string, sub ...string) (*VFS, e
 	return NewEFs(efs, rootDir, sub...)
 }
 
-// rootDir need manual name efs
+// rootDir need manual name efs.
+// rootDir "." (or "") means "no sub-directory chroot" — wrapping with
+// afero.BasePathFs(., ".") would reject every lookup because afero's
+// RealPath enforces HasPrefix(path, "."), which fails for cleaned paths
+// like "ide.html". When rootDir is "." or empty, skip the BasePathFs wrap
+// and serve the embed FS directly.
 func NewEFs(efs *embed.FS, rootDir string, sub ...string) (*VFS, error) {
 	ef := &sembed.EFs{
 		FS: efs,
@@ -33,6 +38,9 @@ func NewEFs(efs *embed.FS, rootDir string, sub ...string) (*VFS, error) {
 	}
 	if len(sub) != 0 {
 		rootDir = filepath.Join(rootDir, sub[0])
+	}
+	if rootDir == "." {
+		return NewVFS(ef)
 	}
 	return NewVFS(ef, rootDir)
 }
